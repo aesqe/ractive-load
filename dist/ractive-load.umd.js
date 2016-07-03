@@ -6,159 +6,176 @@
 
 	Ractive = 'default' in Ractive ? Ractive['default'] : Ractive;
 
-	function getName ( path ) {
-		var pathParts, filename, lastIndex;
+	var charToInteger = {};
+	var integerToChar = {};
 
-		pathParts = path.split( '/' );
-		filename = pathParts.pop();
+	'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='.split( '' ).forEach( function ( char, i ) {
+		charToInteger[ char ] = i;
+		integerToChar[ i ] = char;
+	});
 
-		lastIndex = filename.lastIndexOf( '.' );
-		if ( lastIndex !== -1 ) {
-			filename = filename.substr( 0, lastIndex );
-		}
+	function encode ( value ) {
+		var result, i;
 
-		return filename;
-	}
-
-	/**
-	 * Finds the line and column position of character `char`
-	   in a (presumably) multi-line string
-	 * @param {array} lines - an array of strings, each representing
-	   a line of the original string
-	 * @param {number} char - the character index to convert
-	 * @returns {object}
-	     * @property {number} line - the zero-based line index
-	     * @property {number} column - the zero-based column index
-	     * @property {number} char - the character index that was passed in
-	 */
-	function getLinePosition ( lines, char ) {
-		var line = 0;
-		var lineStart = 0;
-
-		var lineEnds = lines.map( function (line) {
-			var lineEnd = lineStart + line.length + 1; // +1 for the newline
-
-			lineStart = lineEnd;
-			return lineEnd;
-		});
-
-		lineStart = 0;
-
-		while ( char >= lineEnds[ line ] ) {
-			lineStart = lineEnds[ line ];
-			line += 1;
-		}
-
-		var column = char - lineStart;
-		return { line: line, column: column, char: char };
-	}
-
-	var requirePattern = /require\s*\(\s*(?:"([^"]+)"|'([^']+)')\s*\)/g;
-	var TEMPLATE_VERSION = 3;
-
-	function parse ( source ) {
-		var parsed, template, links, imports, scriptItem, script, styles, match, modules, i, item, result;
-
-		if ( !rcu.Ractive ) {
-			throw new Error( 'rcu has not been initialised! You must call rcu.init(Ractive) before rcu.parse()' );
-		}
-
-		parsed = rcu.Ractive.parse( source, {
-			noStringify: true,
-			interpolate: { script: false, style: false },
-			includeLinePositions: true
-		});
-
-		if ( parsed.v !== TEMPLATE_VERSION ) {
-			throw new Error( 'Mismatched template version (expected ' + TEMPLATE_VERSION + ', got ' + parsed.v + ')! Please ensure you are using the latest version of Ractive.js in your build process as well as in your app' );
-		}
-
-		links = [];
-		styles = [];
-		modules = [];
-
-		// Extract certain top-level nodes from the template. We work backwards
-		// so that we can easily splice them out as we go
-		template = parsed.t;
-		i = template.length;
-		while ( i-- ) {
-			item = template[i];
-
-			if ( item && item.t === 7 ) {
-				if ( item.e === 'link' && ( item.a && item.a.rel === 'ractive' ) ) {
-					links.push( template.splice( i, 1 )[0] );
-				}
-
-				if ( item.e === 'script' && ( !item.a || !item.a.type || item.a.type === 'text/javascript' ) ) {
-					if ( scriptItem ) {
-						throw new Error( 'You can only have one <script> tag per component file' );
-					}
-					scriptItem = template.splice( i, 1 )[0];
-				}
-
-				if ( item.e === 'style' && ( !item.a || !item.a.type || item.a.type === 'text/css' ) ) {
-					styles.push( template.splice( i, 1 )[0] );
-				}
-			}
-		}
-
-		// Clean up template - trim whitespace left over from the removal
-		// of <link>, <style> and <script> tags from start...
-		while ( /^\s*$/.test( template[0] ) ) {
-			template.shift();
-		}
-
-		// ...and end
-		while ( /^\s*$/.test( template[ template.length - 1 ] ) ) {
-			template.pop();
-		}
-
-		// Extract names from links
-		imports = links.map( function (link) {
-			var href = link.a.href;
-			var name = link.a.name || getName( href );
-
-			if ( typeof name !== 'string' ) {
-				throw new Error( 'Error parsing link tag' );
-			}
-
-			return { name: name, href: href };
-		});
-
-		result = {
-			source: source, imports: imports, modules: modules,
-			template: parsed,
-			css: styles.map( extractFragment ).join( ' ' ),
-			script: ''
-		};
-
-		// extract position information, so that we can generate source maps
-		if ( scriptItem ) {
-			var content = scriptItem.f[0];
-
-			var contentStart = source.indexOf( '>', scriptItem.p[2] ) + 1;
-
-			// we have to jump through some hoops to find contentEnd, because the contents
-			// of the <script> tag get trimmed at parse time
-			var contentEnd = contentStart + content.length + source.slice( contentStart ).replace( content, '' ).indexOf( '</script' );
-
-			var lines = source.split( '\n' );
-
-			result.scriptStart = getLinePosition( lines, contentStart );
-			result.scriptEnd = getLinePosition( lines, contentEnd );
-
-			result.script = source.slice( contentStart, contentEnd );
-
-			while ( match = requirePattern.exec( result.script ) ) {
-				modules.push( match[1] || match[2] );
+		if ( typeof value === 'number' ) {
+			result = encodeInteger( value );
+		} else {
+			result = '';
+			for ( i = 0; i < value.length; i += 1 ) {
+				result += encodeInteger( value[i] );
 			}
 		}
 
 		return result;
 	}
 
-	function extractFragment ( item ) {
-		return item.f;
+	function encodeInteger ( num ) {
+		var result = '', clamped;
+
+		if ( num < 0 ) {
+			num = ( -num << 1 ) | 1;
+		} else {
+			num <<= 1;
+		}
+
+		do {
+			clamped = num & 31;
+			num >>= 5;
+
+			if ( num > 0 ) {
+				clamped |= 32;
+			}
+
+			result += integerToChar[ clamped ];
+		} while ( num > 0 );
+
+		return result;
+	}
+
+	/**
+	 * Encodes a string as base64
+	 * @param {string} str - the string to encode
+	 * @returns {string}
+	 */
+	function btoa$1 ( str ) {
+		return new Buffer( str ).toString( 'base64' );
+	}
+
+	function SourceMap ( properties ) {
+		this.version = 3;
+
+		this.file           = properties.file;
+		this.sources        = properties.sources;
+		this.sourcesContent = properties.sourcesContent;
+		this.names          = properties.names;
+		this.mappings       = properties.mappings;
+	}
+
+	SourceMap.prototype = {
+		toString: function toString () {
+			return JSON.stringify( this );
+		},
+
+		toUrl: function toUrl () {
+			return 'data:application/json;charset=utf-8;base64,' + btoa$1( this.toString() );
+		}
+	};
+
+	var alreadyWarned = false;
+
+	/**
+	 * Generates a v3 sourcemap between an original source and its built form
+	 * @param {object} definition - the result of `rcu.parse( originalSource )`
+	 * @param {object} options
+	 * @param {string} options.source - the name of the original source file
+	 * @param {number=} options.offset - the number of lines in the generated
+	   code that precede the script portion of the original source
+	 * @param {string=} options.file - the name of the generated file
+	 * @returns {object}
+	 */
+	function generateSourceMap ( definition, options ) {
+		if ( options === void 0 ) options = {};
+
+		if ( 'padding' in options ) {
+			options.offset = options.padding;
+
+			if ( !alreadyWarned ) {
+				console.warn( 'rcu: options.padding is deprecated, use options.offset instead' ); // eslint-disable-line no-console
+				alreadyWarned = true;
+			}
+		}
+
+		var mappings = '';
+
+		if ( definition.scriptStart ) {
+			// The generated code probably includes a load of module gubbins - we don't bother
+			// mapping that to anything, instead we just have a bunch of empty lines
+			var offset = new Array( ( options.offset || 0 ) + 1 ).join( ';' );
+			var lines = definition.script.split( '\n' );
+
+			var encoded;
+
+			if ( options.hires !== false ) {
+				var previousLineEnd = -definition.scriptStart.column;
+
+				encoded = lines.map( function ( line, i ) {
+					var lineOffset = i === 0 ? definition.scriptStart.line : 1;
+
+					var encoded = encode([ 0, 0, lineOffset, -previousLineEnd ]);
+
+					var lineEnd = line.length;
+
+					for ( var j = 1; j < lineEnd; j += 1 ) {
+						encoded += ',CAAC';
+					}
+
+					previousLineEnd = i === 0 ?
+						lineEnd + definition.scriptStart.column :
+						Math.max( 0, lineEnd - 1 );
+
+					return encoded;
+				});
+			} else {
+				encoded = lines.map( function ( line, i ) {
+					if ( i === 0 ) {
+						// first mapping points to code immediately following opening <script> tag
+						return encode([ 0, 0, definition.scriptStart.line, definition.scriptStart.column ]);
+					}
+
+					if ( i === 1 ) {
+						return encode([ 0, 0, 1, -definition.scriptStart.column ]);
+					}
+
+					return 'AACA'; // equates to [ 0, 0, 1, 0 ];
+				});
+			}
+
+			mappings = offset + encoded.join( ';' );
+		}
+
+		return new SourceMap({
+			file: options.file || null,
+			sources: [ options.source || null ],
+			sourcesContent: [ definition.source ],
+			names: [],
+			mappings: mappings
+		});
+	}
+
+	function getName ( path ) {
+		var pathParts = path.split( '/' );
+		var filename = pathParts.pop();
+
+		var lastIndex = filename.lastIndexOf( '.' );
+		if ( lastIndex !== -1 ) filename = filename.substr( 0, lastIndex );
+
+		return filename;
+	}
+
+	var Ractive$1;
+
+	function init ( copy ) {
+		Ractive$1 = copy;
 	}
 
 	var _eval;
@@ -304,166 +321,355 @@
 		return cloned;
 	}
 
-	var charToInteger = {};
-	var integerToChar = {};
+	function find(str) {
+		var quote = undefined;
+		var escapedFrom = undefined;
+		var stack = [];
 
-	'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='.split( '' ).forEach( function ( char, i ) {
-		charToInteger[ char ] = i;
-		integerToChar[ i ] = char;
-	});
+		var start = undefined;
+		var found = [];
+		var state = base;
 
-	function encode ( value ) {
-		var result, i;
+		function base(char, i) {
+			if (char === '/') return start = i, slash;
+			if (char === '"' || char === "'") return start = i, quote = char, string;
+			if (char === '`') return start = i, templateString;
 
-		if ( typeof value === 'number' ) {
-			result = encodeInteger( value );
-		} else {
-			result = '';
-			for ( i = 0; i < value.length; i += 1 ) {
-				result += encodeInteger( value[i] );
-			}
+			if (char === '{') return stack.push(base), base;
+			if (char === '}') return start = i, stack.pop();
+
+			return base;
 		}
 
-		return result;
+		function slash(char) {
+			if (char === '/') return lineComment;
+			if (char === '*') return blockComment;
+			if (char === '[') return regexCharacter;
+			return regex;
+		}
+
+		function regex(char, i) {
+			if (char === '[') return regexCharacter;
+			if (char === '\\') return escapedFrom = regex, escaped;
+
+			if (char === '/') {
+				var end = i + 1;
+				var outer = str.slice(start, end);
+				var inner = outer.slice(1, -1);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'regex' });
+
+				return base;
+			}
+
+			return regex;
+		}
+
+		function regexCharacter(char) {
+			if (char === ']') return regex;
+			if (char === '\\') return escapedFrom = regexCharacter, escaped;
+			return regexCharacter;
+		}
+
+		function string(char, i) {
+			if (char === '\\') return escapedFrom = string, escaped;
+			if (char === quote) {
+				var end = i + 1;
+				var outer = str.slice(start, end);
+				var inner = outer.slice(1, -1);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'string' });
+
+				return base;
+			}
+
+			return string;
+		}
+
+		function escaped() {
+			return escapedFrom;
+		}
+
+		function templateString(char, i) {
+			if (char === '$') return templateStringDollar;
+			if (char === '\\') return escapedFrom = templateString, escaped;
+
+			if (char === '`') {
+				var end = i + 1;
+				var outer = str.slice(start, end);
+				var inner = outer.slice(1, -1);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'templateEnd' });
+
+				return base;
+			}
+
+			return templateString;
+		}
+
+		function templateStringDollar(char, i) {
+			if (char === '{') {
+				var end = i + 1;
+				var outer = str.slice(start, end);
+				var inner = outer.slice(1, -2);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'templateChunk' });
+
+				stack.push(templateString);
+				return base;
+			}
+			return templateString;
+		}
+
+		function lineComment(char, end) {
+			if (char === '\n') {
+				var outer = str.slice(start, end);
+				var inner = outer.slice(2);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'line' });
+
+				return base;
+			}
+
+			return lineComment;
+		}
+
+		function blockComment(char) {
+			if (char === '*') return blockCommentEnding;
+			return blockComment;
+		}
+
+		function blockCommentEnding(char, i) {
+			if (char === '/') {
+				var end = i + 1;
+				var outer = str.slice(start, end);
+				var inner = outer.slice(2, -2);
+
+				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'block' });
+
+				return base;
+			}
+
+			return blockComment;
+		}
+
+		for (var i = 0; i < str.length; i += 1) {
+			state = state(str[i], i);
+		}
+
+		return found;
 	}
 
-	function encodeInteger ( num ) {
-		var result = '', clamped;
+	function makeGlobalRegExp(original) {
+		var flags = 'g';
 
-		if ( num < 0 ) {
-			num = ( -num << 1 ) | 1;
-		} else {
-			num <<= 1;
-		}
+		if (original.multiline) flags += 'm';
+		if (original.ignoreCase) flags += 'i';
+		if (original.sticky) flags += 'y';
+		if (original.unicode) flags += 'u';
 
-		do {
-			clamped = num & 31;
-			num >>= 5;
+		return new RegExp(original.source, flags);
+	}
 
-			if ( num > 0 ) {
-				clamped |= 32;
+	function match(str, pattern, callback) {
+		var g = pattern.global;
+		if (!g) pattern = makeGlobalRegExp(pattern);
+
+		var found = find(str);
+
+		var match = undefined;
+		var chunkIndex = 0;
+
+		while (match = pattern.exec(str)) {
+			var chunk = undefined;
+
+			do {
+				chunk = found[chunkIndex];
+
+				if (chunk && chunk.end < match.index) {
+					chunkIndex += 1;
+				} else {
+					break;
+				}
+			} while (chunk);
+
+			if (!chunk || chunk.start > match.index) {
+				var args = [].slice.call(match).concat(match.index, str);
+				callback.apply(null, args);
+				if (!g) break;
 			}
-
-			result += integerToChar[ clamped ];
-		} while ( num > 0 );
-
-		return result;
+		}
 	}
 
 	/**
-	 * Encodes a string as base64
-	 * @param {string} str - the string to encode
-	 * @returns {string}
-	 */
-	function btoa$1 ( str ) {
-		return new Buffer( str ).toString( 'base64' );
-	}
-
-	var SourceMap = function ( properties ) {
-		this.version = 3;
-
-		this.file           = properties.file;
-		this.sources        = properties.sources;
-		this.sourcesContent = properties.sourcesContent;
-		this.names          = properties.names;
-		this.mappings       = properties.mappings;
-	};
-
-	SourceMap.prototype = {
-		toString: function toString () {
-			return JSON.stringify( this );
-		},
-
-		toUrl: function toUrl () {
-			return 'data:application/json;charset=utf-8;base64,' + btoa$1( this.toString() );
-		}
-	};
-
-	var alreadyWarned = false;
-
-	/**
-	 * Generates a v3 sourcemap between an original source and its built form
-	 * @param {object} definition - the result of `rcu.parse( originalSource )`
-	 * @param {object} options
-	 * @param {string} options.source - the name of the original source file
-	 * @param {number=} options.offset - the number of lines in the generated
-	   code that precede the script portion of the original source
-	 * @param {string=} options.file - the name of the generated file
+	 * Finds the line and column position of character `char`
+	   in a (presumably) multi-line string
+	 * @param {array} lines - an array of strings, each representing
+	   a line of the original string
+	 * @param {number} char - the character index to convert
 	 * @returns {object}
+	     * @property {number} line - the zero-based line index
+	     * @property {number} column - the zero-based column index
+	     * @property {number} char - the character index that was passed in
 	 */
-	function generateSourceMap ( definition, options ) {
-		var lines, mappings, offset;
+	function getLinePosition ( lines, char ) {
+		var line = 0;
+		var lineStart = 0;
 
-		if ( !options || !options.source ) {
-			throw new Error( 'You must supply an options object with a `source` property to rcu.generateSourceMap()' );
-		}
-
-		if ( 'padding' in options ) {
-			options.offset = options.padding;
-
-			if ( !alreadyWarned ) {
-				console.log( 'rcu: options.padding is deprecated, use options.offset instead' );
-				alreadyWarned = true;
-			}
-		}
-
-		// The generated code probably includes a load of module gubbins - we don't bother
-		// mapping that to anything, instead we just have a bunch of empty lines
-		offset = new Array( ( options.offset || 0 ) + 1 ).join( ';' );
-
-		lines = definition.script.split( '\n' );
-		mappings = offset + lines.map( function ( line, i ) {
-			if ( i === 0 ) {
-				// first mapping points to code immediately following opening <script> tag
-				return encode([ 0, 0, definition.scriptStart.line, definition.scriptStart.column ]);
-			}
-
-			if ( i === 1 ) {
-				return encode([ 0, 0, 1, -definition.scriptStart.column ]);
-			}
-
-			return 'AACA'; // equates to [ 0, 0, 1, 0 ];
-		}).join( ';' );
-
-		return new SourceMap({
-			file: options.file,
-			sources: [ options.source ],
-			sourcesContent: [ definition.source ],
-			names: [],
-			mappings: mappings
+		var lineEnds = lines.map( function ( line ) {
+			lineStart += line.length + 1; // +1 for the newline
+			return lineStart;
 		});
+
+		lineStart = 0;
+
+		while ( char >= lineEnds[ line ] ) {
+			lineStart = lineEnds[ line ];
+			line += 1;
+		}
+
+		var column = char - lineStart;
+		return { line: line, column: column, char: char };
+	}
+
+	var requirePattern = /require\s*\(\s*(?:"([^"]+)"|'([^']+)')\s*\)/g;
+	var TEMPLATE_VERSION = 4;
+
+	function parse ( source ) {
+		if ( !Ractive$1 ) {
+			throw new Error( 'rcu has not been initialised! You must call rcu.init(Ractive) before rcu.parse()' );
+		}
+
+		var parsed = Ractive$1.parse( source, {
+			noStringify: true,
+			interpolate: { script: false, style: false },
+			includeLinePositions: true
+		});
+
+		if ( parsed.v !== TEMPLATE_VERSION ) {
+			console.warn( ("Mismatched template version (expected " + TEMPLATE_VERSION + ", got " + (parsed.v) + ")! Please ensure you are using the latest version of Ractive.js in your build process as well as in your app") ); // eslint-disable-line no-console
+		}
+
+		var links = [];
+		var styles = [];
+		var modules = [];
+
+		// Extract certain top-level nodes from the template. We work backwards
+		// so that we can easily splice them out as we go
+		var template = parsed.t;
+		var i = template.length;
+		var scriptItem;
+
+		while ( i-- ) {
+			var item = template[i];
+
+			if ( item && item.t === 7 ) {
+				var attr = getAttr( 'rel', item );
+				if ( item.e === 'link' && attr === 'ractive' ) {
+					links.push( template.splice( i, 1 )[0] );
+				}
+
+				attr = getAttr( 'type', item );
+				if ( item.e === 'script' && ( !attr || attr === 'text/javascript' ) ) {
+					if ( scriptItem ) {
+						throw new Error( 'You can only have one <script> tag per component file' );
+					}
+					scriptItem = template.splice( i, 1 )[0];
+				}
+
+				if ( item.e === 'style' && ( !attr || attr === 'text/css' ) ) {
+					styles.push( template.splice( i, 1 )[0] );
+				}
+			}
+		}
+
+		// Clean up template - trim whitespace left over from the removal
+		// of <link>, <style> and <script> tags from start...
+		while ( /^\s*$/.test( template[0] ) ) template.shift();
+
+		// ...and end
+		while ( /^\s*$/.test( template[ template.length - 1 ] ) ) template.pop();
+
+		// Extract names from links
+		var imports = links.map( function ( link ) {
+			var href = getAttr( 'href', link );
+			var name = getAttr( 'name', link ) || getName( href );
+
+			if ( typeof name !== 'string' ) {
+				throw new Error( 'Error parsing link tag' );
+			}
+
+			return { name: name, href: href };
+		});
+
+		var result = {
+			source: source, imports: imports, modules: modules,
+			template: parsed,
+			css: styles.map( function ( item ) { return item.f; } ).join( ' ' ),
+			script: ''
+		};
+
+		// extract position information, so that we can generate source maps
+		if ( scriptItem && scriptItem.f ) {
+			var content = scriptItem.f[0];
+
+			var contentStart = source.indexOf( '>', scriptItem.p[2] ) + 1;
+
+			// we have to jump through some hoops to find contentEnd, because the contents
+			// of the <script> tag get trimmed at parse time
+			var contentEnd = contentStart + content.length + source.slice( contentStart ).replace( content, '' ).indexOf( '</script' );
+
+			var lines = source.split( '\n' );
+
+			result.scriptStart = getLinePosition( lines, contentStart );
+			result.scriptEnd = getLinePosition( lines, contentEnd );
+
+			result.script = source.slice( contentStart, contentEnd );
+
+			match( result.script, requirePattern, function ( match, doubleQuoted, singleQuoted ) {
+				var source = doubleQuoted || singleQuoted;
+				if ( !~modules.indexOf( source ) ) modules.push( source );
+			});
+		}
+
+		return result;
+	}
+
+	function getAttr ( name, node ) {
+		if ( node.a && node.a[name] ) return node.a[name];
+		else if ( node.m ) {
+			var i = node.m.length;
+			while ( i-- ) {
+				var a = node.m[i];
+				// plain attribute
+				if ( a.t === 13 ) {
+					if ( a.n === name ) return a.f;
+				}
+			}
+		}
 	}
 
 	function make ( source, config, callback, errback ) {
-		var definition,
-			url,
-			createComponent,
-			loadImport,
-			imports,
-			loadModule,
-			modules,
-			remainingDependencies,
-			onloaded,
-			ready;
-
 		config = config || {};
 
 		// Implementation-specific config
-		url        = config.url || '';
-		loadImport = config.loadImport;
-		loadModule = config.loadModule;
+		var url        = config.url || '';
+		var loadImport = config.loadImport;
+		var loadModule = config.loadModule;
 
-		definition = parse( source );
+		var definition = parse( source );
 
-		createComponent = function () {
-			var options, Component, factory, component, exports, prop;
+		var imports = {};
 
-			options = {
+		function createComponent () {
+			var options = {
 				template: definition.template,
 				partials: definition.partials,
 				css: definition.css,
 				components: imports
 			};
+
+			var Component;
 
 			if ( definition.script ) {
 				var sourceMap = generateSourceMap( definition, {
@@ -472,23 +678,23 @@
 				});
 
 				try {
-					factory = new eval2.Function( 'component', 'require', 'Ractive', definition.script, {
+					var factory = new eval2.Function( 'component', 'require', 'Ractive', definition.script, {
 						sourceMap: sourceMap
 					});
 
-					component = {};
-					factory( component, config.require, rcu.Ractive );
-					exports = component.exports;
+					var component = {};
+					factory( component, config.require, Ractive$1 );
+					var exports = component.exports;
 
 					if ( typeof exports === 'object' ) {
-						for ( prop in exports ) {
+						for ( var prop in exports ) {
 							if ( exports.hasOwnProperty( prop ) ) {
 								options[ prop ] = exports[ prop ];
 							}
 						}
 					}
 
-					Component = rcu.Ractive.extend( options );
+					Component = Ractive$1.extend( options );
 				} catch ( err ) {
 					errback( err );
 					return;
@@ -496,10 +702,10 @@
 
 				callback( Component );
 			} else {
-				Component = rcu.Ractive.extend( options );
+				Component = Ractive$1.extend( options );
 				callback( Component );
 			}
-		};
+		}
 
 		// If the definition includes sub-components e.g.
 		//     <link rel='ractive' href='foo.html'>
@@ -509,25 +715,24 @@
 		//
 		// In some environments (e.g. AMD) the same goes for modules, which
 		// most be loaded before the script can execute
-		remainingDependencies = ( definition.imports.length + ( loadModule ? definition.modules.length : 0 ) );
+		var remainingDependencies = ( definition.imports.length + ( loadModule ? definition.modules.length : 0 ) );
+		var ready = false;
 
 		if ( remainingDependencies ) {
-			onloaded = function () {
+			var onloaded = function () {
 				if ( !--remainingDependencies ) {
 					if ( ready ) {
 						createComponent();
 					} else {
-						setTimeout( createComponent, 0 ); // cheap way to enforce asynchrony for a non-Zalgoesque API
+						setTimeout( createComponent ); // cheap way to enforce asynchrony for a non-Zalgoesque API
 					}
 				}
 			};
 
 			if ( definition.imports.length ) {
 				if ( !loadImport ) {
-					throw new Error( 'Component definition includes imports (e.g. `<link rel="ractive" href="' + definition.imports[0].href + '">`) but no loadImport method was passed to rcu.make()' );
+					throw new Error( ("Component definition includes imports (e.g. <link rel=\"ractive\" href=\"" + (definition.imports[0].href) + "\">) but no loadImport method was passed to rcu.make()") );
 				}
-
-				imports = {};
 
 				definition.imports.forEach( function ( toImport ) {
 					loadImport( toImport.name, toImport.href, url, function ( Component ) {
@@ -538,13 +743,8 @@
 			}
 
 			if ( loadModule && definition.modules.length ) {
-				modules = {};
-
 				definition.modules.forEach( function ( name ) {
-					loadModule( name, name, url, function ( Component ) {
-						modules[ name ] = Component;
-						onloaded();
-					});
+					loadModule( name, name, url, onloaded );
 				});
 			}
 		} else {
@@ -554,9 +754,7 @@
 		ready = true;
 	}
 
-	function resolvePath ( relativePath, base ) {
-		var pathParts, relativePathParts, part;
-
+	function resolve ( relativePath, base ) {
 		// If we've got an absolute path, or base is '', return
 		// relativePath
 		if ( !base || relativePath.charAt( 0 ) === '/' ) {
@@ -564,11 +762,13 @@
 		}
 
 		// 'foo/bar/baz.html' -> ['foo', 'bar', 'baz.html']
-		pathParts = ( base || '' ).split( '/' );
-		relativePathParts = relativePath.split( '/' );
+		var pathParts = ( base || '' ).split( '/' );
+		var relativePathParts = relativePath.split( '/' );
 
 		// ['foo', 'bar', 'baz.html'] -> ['foo', 'bar']
 		pathParts.pop();
+
+		var part;
 
 		while ( part = relativePathParts.shift() ) {
 			if ( part === '..' ) {
@@ -580,18 +780,6 @@
 
 		return pathParts.join( '/' );
 	}
-
-	var rcu = {
-		init: function init ( copy ) {
-			rcu.Ractive = copy;
-		},
-
-		parse: parse,
-		make: make,
-		generateSourceMap: generateSourceMap,
-		resolve: resolvePath,
-		getName: getName
-	};
 
 	var get;
 
@@ -641,6 +829,62 @@
 
 	var get$1 = get;
 
+	// Load multiple components:
+	//
+	//     Ractive.load({
+	//       foo: 'path/to/foo.html',
+	//       bar: 'path/to/bar.html'
+	//     }).then( function ( components ) {
+	//       var foo = new components.foo(...);
+	//       var bar = new components.bar(...);
+	//     });
+	function loadMultiple ( map, baseUrl, cache ) {
+		var promise = new Ractive.Promise( function ( resolve, reject ) {
+			var pending = 0, result = {}, name, load;
+
+			load = function ( name ) {
+				var path = map[ name ];
+
+				loadSingle( path, baseUrl, baseUrl, cache ).then( function ( Component ) {
+					result[ name ] = Component;
+
+					if ( !--pending ) {
+						resolve( result );
+					}
+				}, reject );
+			};
+
+			for ( name in map ) {
+				if ( map.hasOwnProperty( name ) ) {
+					pending += 1;
+					load( name );
+				}
+			}
+		});
+
+		return promise;
+	}
+
+	init( Ractive );
+
+	function load$1 ( url ) {
+		var baseUrl = load$1.baseUrl;
+		var cache = load$1.cache !== false;
+
+		if ( !url ) {
+			return loadFromLinks( baseUrl, cache );
+		}
+
+		if ( typeof url === 'object' ) {
+			return loadMultiple( url, baseUrl, cache );
+		}
+
+		return loadSingle( url, baseUrl, baseUrl, cache );
+	}
+
+	load$1.baseUrl = '';
+	load$1.modules = {};
+
 	var promises = {};
 	var global = ( typeof window !== 'undefined' ? window : {} );
 	// Load a single component:
@@ -651,14 +895,14 @@
 	function loadSingle ( path, parentUrl, baseUrl, cache ) {
 		var promise, url;
 
-		url = rcu.resolve( path, path[0] === '.' ? parentUrl : baseUrl );
+		url = resolve( path, path[0] === '.' ? parentUrl : baseUrl );
 
 		// if this component has already been requested, don't
 		// request it again
 		if ( !cache || !promises[ url ] ) {
 			promise = get$1( url ).then( function ( template ) {
 				return new Ractive.Promise( function ( fulfil, reject ) {
-					rcu.make( template, {
+					make( template, {
 						url: url,
 						loadImport: function ( name, path, parentUrl, callback ) {
 							// if import has a relative URL, it should resolve
@@ -680,7 +924,7 @@
 	function ractiveRequire ( name ) {
 		var dependency, qualified;
 
-		dependency = load.modules.hasOwnProperty( name ) ? load.modules[ name ] :
+		dependency = load$1.modules.hasOwnProperty( name ) ? load$1.modules[ name ] :
 		             global.hasOwnProperty( name ) ? global[ name ] : null;
 
 		if ( !dependency && typeof require === 'function' ) {
@@ -738,7 +982,7 @@
 	}
 
 	function getNameFromLink ( link ) {
-		return link.getAttribute( 'name' ) || rcu.getName( link.getAttribute( 'href' ) );
+		return link.getAttribute( 'name' ) || getName( link.getAttribute( 'href' ) );
 	}
 
 	function toArray ( arrayLike ) {
@@ -751,43 +995,7 @@
 		return arr;
 	}
 
-	// Load multiple components:
-	//
-	//     Ractive.load({
-	//       foo: 'path/to/foo.html',
-	//       bar: 'path/to/bar.html'
-	//     }).then( function ( components ) {
-	//       var foo = new components.foo(...);
-	//       var bar = new components.bar(...);
-	//     });
-	function loadMultiple ( map, baseUrl, cache ) {
-		var promise = new Ractive.Promise( function ( resolve, reject ) {
-			var pending = 0, result = {}, name, load;
-
-			load = function ( name ) {
-				var path = map[ name ];
-
-				loadSingle( path, baseUrl, baseUrl, cache ).then( function ( Component ) {
-					result[ name ] = Component;
-
-					if ( !--pending ) {
-						resolve( result );
-					}
-				}, reject );
-			};
-
-			for ( name in map ) {
-				if ( map.hasOwnProperty( name ) ) {
-					pending += 1;
-					load( name );
-				}
-			}
-		});
-
-		return promise;
-	}
-
-	rcu.init( Ractive );
+	init( Ractive );
 
 	function load ( url ) {
 		var baseUrl = load.baseUrl;
