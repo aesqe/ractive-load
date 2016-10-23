@@ -321,41 +321,79 @@
 		return cloned;
 	}
 
-	function find(str) {
-		var quote = undefined;
-		var escapedFrom = undefined;
+	function getLocation ( source, charIndex ) {
+		var lines = source.split( '\n' );
+		var len = lines.length;
+
+		for ( var i = 0, lineStart = 0; i < len; i += 1 ) {
+			var line = lines[i];
+			var lineEnd =  lineStart + line.length + 1; // +1 for newline
+
+			if ( lineEnd > charIndex ) {
+				return { line: i + 1, column: charIndex - lineStart };
+			}
+
+			lineStart = lineEnd;
+		}
+
+		throw new Error( ("Could not determine location of character " + charIndex) );
+	}
+
+	var keywords = /(case|default|delete|do|else|in|instanceof|new|return|throw|typeof|void)\s*$/;
+	var punctuators = /(^|\{|\(|\[\.|;|,|<|>|<=|>=|==|!=|===|!==|\+|-|\*\%|<<|>>|>>>|&|\||\^|!|~|&&|\|\||\?|:|=|\+=|-=|\*=|%=|<<=|>>=|>>>=|&=|\|=|\^=|\/=|\/)\s*$/;
+	var ambiguous = /(\}|\)|\+\+|--)\s*$/;
+
+	function find ( str ) {
+		var quote;
+		var escapedFrom;
+		var regexEnabled = true;
+		var pfixOp = false;
 		var stack = [];
 
-		var start = undefined;
+		var start;
 		var found = [];
 		var state = base;
 
-		function base(char, i) {
-			if (char === '/') return start = i, slash;
-			if (char === '"' || char === "'") return start = i, quote = char, string;
-			if (char === '`') return start = i, templateString;
+		function base ( char, i ) {
+			if ( char === '/' ) {
+				// could be start of regex literal OR division punctuator. Solution via
+				// http://stackoverflow.com/questions/5519596/when-parsing-javascript-what-determines-the-meaning-of-a-slash/27120110#27120110
+				var substr = str.substr( 0, i );
+				if ( keywords.test( substr ) || punctuators.test( substr ) ) regexEnabled = true;
+				else if ( ambiguous.test( substr ) && !tokenClosesExpression( substr, found ) ) regexEnabled = true; // TODO save this determination for when it's necessary?
+				else regexEnabled = false;
 
-			if (char === '{') return stack.push(base), base;
-			if (char === '}') return start = i, stack.pop();
+				return start = i, slash;
+			}
+
+			if ( char === '"' || char === "'" ) return start = i, quote = char, string;
+			if ( char === '`' ) return start = i, templateString;
+
+			if ( char === '{' ) return stack.push( base ), base;
+			if ( char === '}' ) return start = i, stack.pop();
+
+			if ( !( pfixOp && /\W/.test( char ) ) ) {
+				pfixOp = ( char === '+' && str[ i - 1 ] === '+' ) || ( char === '-' && str[ i - 1 ] === '-' );
+			}
 
 			return base;
 		}
 
-		function slash(char) {
-			if (char === '/') return lineComment;
-			if (char === '*') return blockComment;
-			if (char === '[') return regexCharacter;
-			return regex;
+		function slash ( char ) {
+			if ( char === '/' ) return lineComment;
+			if ( char === '*' ) return blockComment;
+			if ( char === '[' ) return regexEnabled ? regexCharacter : base;
+			return regexEnabled && !pfixOp ? regex : base;
 		}
 
-		function regex(char, i) {
-			if (char === '[') return regexCharacter;
-			if (char === '\\') return escapedFrom = regex, escaped;
+		function regex ( char, i ) {
+			if ( char === '[' ) return regexCharacter;
+			if ( char === '\\' ) return escapedFrom = regex, escaped;
 
-			if (char === '/') {
+			if ( char === '/' ) {
 				var end = i + 1;
-				var outer = str.slice(start, end);
-				var inner = outer.slice(1, -1);
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 1, -1 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'regex' });
 
@@ -365,18 +403,18 @@
 			return regex;
 		}
 
-		function regexCharacter(char) {
-			if (char === ']') return regex;
-			if (char === '\\') return escapedFrom = regexCharacter, escaped;
+		function regexCharacter ( char ) {
+			if ( char === ']' ) return regex;
+			if ( char === '\\' ) return escapedFrom = regexCharacter, escaped;
 			return regexCharacter;
 		}
 
-		function string(char, i) {
-			if (char === '\\') return escapedFrom = string, escaped;
-			if (char === quote) {
+		function string ( char, i ) {
+			if ( char === '\\' ) return escapedFrom = string, escaped;
+			if ( char === quote ) {
 				var end = i + 1;
-				var outer = str.slice(start, end);
-				var inner = outer.slice(1, -1);
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 1, -1 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'string' });
 
@@ -386,18 +424,18 @@
 			return string;
 		}
 
-		function escaped() {
+		function escaped () {
 			return escapedFrom;
 		}
 
-		function templateString(char, i) {
-			if (char === '$') return templateStringDollar;
-			if (char === '\\') return escapedFrom = templateString, escaped;
+		function templateString ( char, i ) {
+			if ( char === '$' ) return templateStringDollar;
+			if ( char === '\\' ) return escapedFrom = templateString, escaped;
 
-			if (char === '`') {
+			if ( char === '`' ) {
 				var end = i + 1;
-				var outer = str.slice(start, end);
-				var inner = outer.slice(1, -1);
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 1, -1 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'templateEnd' });
 
@@ -407,24 +445,24 @@
 			return templateString;
 		}
 
-		function templateStringDollar(char, i) {
-			if (char === '{') {
+		function templateStringDollar ( char, i ) {
+			if ( char === '{' ) {
 				var end = i + 1;
-				var outer = str.slice(start, end);
-				var inner = outer.slice(1, -2);
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 1, -2 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'templateChunk' });
 
-				stack.push(templateString);
+				stack.push( templateString );
 				return base;
 			}
-			return templateString;
+			return templateString( char, i );
 		}
 
-		function lineComment(char, end) {
-			if (char === '\n') {
-				var outer = str.slice(start, end);
-				var inner = outer.slice(2);
+		function lineComment ( char, end ) {
+			if ( char === '\n' ) {
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 2 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'line' });
 
@@ -434,69 +472,144 @@
 			return lineComment;
 		}
 
-		function blockComment(char) {
-			if (char === '*') return blockCommentEnding;
+		function blockComment ( char ) {
+			if ( char === '*' ) return blockCommentEnding;
 			return blockComment;
 		}
 
-		function blockCommentEnding(char, i) {
-			if (char === '/') {
+		function blockCommentEnding ( char, i ) {
+			if ( char === '/' ) {
 				var end = i + 1;
-				var outer = str.slice(start, end);
-				var inner = outer.slice(2, -2);
+				var outer = str.slice( start, end );
+				var inner = outer.slice( 2, -2 );
 
 				found.push({ start: start, end: end, inner: inner, outer: outer, type: 'block' });
 
 				return base;
 			}
 
-			return blockComment;
+			return blockComment( char );
 		}
 
-		for (var i = 0; i < str.length; i += 1) {
-			state = state(str[i], i);
+		for ( var i = 0; i < str.length; i += 1 ) {
+			if ( !state ) {
+				var ref = getLocation( str, i ), line = ref.line, column = ref.column;
+				var before = str.slice( 0, i );
+				var beforeLine = /(^|\n).+$/.exec( before )[0];
+				var after = str.slice( i );
+				var afterLine = /.+(\n|$)/.exec( after )[0];
+
+				var snippet = "" + beforeLine + afterLine + "\n" + (Array( beforeLine.length + 1 ).join( ' ' )) + "^";
+
+				throw new Error( ("Unexpected character (" + line + ":" + column + "). If this is valid JavaScript, it's probably a bug in tippex. Please raise an issue at https://github.com/Rich-Harris/tippex/issues – thanks!\n\n" + snippet) );
+			}
+
+			state = state( str[i], i );
 		}
 
 		return found;
 	}
 
-	function makeGlobalRegExp(original) {
-		var flags = 'g';
+	function tokenClosesExpression ( substr, found ) {
+		substr = _erase( substr, found );
 
-		if (original.multiline) flags += 'm';
-		if (original.ignoreCase) flags += 'i';
-		if (original.sticky) flags += 'y';
-		if (original.unicode) flags += 'u';
+		var token = ambiguous.exec( substr );
+		if ( token ) token = token[1];
 
-		return new RegExp(original.source, flags);
+		if ( token === ')' ) {
+			var count = 0;
+			var i = substr.length;
+			while ( i-- ) {
+				if ( substr[i] === ')' ) {
+					count += 1;
+				}
+
+				if ( substr[i] === '(' ) {
+					count -= 1;
+					if ( count === 0 ) {
+						i -= 1;
+						break;
+					}
+				}
+			}
+
+			// if parenthesized expression is immediately preceded by `if`/`while`, it's not closing an expression
+			while ( /\s/.test( substr[i - 1] ) ) i -= 1;
+			if ( substr.slice( i - 2, i ) === 'if' || substr.slice( i - 5, i ) === 'while' ) return false;
+		}
+
+		// TODO handle }, ++ and -- tokens immediately followed by / character
+		return true;
 	}
 
-	function match(str, pattern, callback) {
+	function spaces ( count ) {
+		var spaces = '';
+		while ( count-- ) spaces += ' ';
+		return spaces;
+	}
+
+	var erasers = {
+		string: function ( chunk ) { return chunk.outer[0] + spaces( chunk.inner.length ) + chunk.outer[0]; },
+		line: function ( chunk ) { return spaces( chunk.outer.length ); },
+		block: function ( chunk ) { return chunk.outer.split( '\n' ).map( function ( line ) { return spaces( line.length ); } ).join( '\n' ); },
+		regex: function ( chunk ) { return '/' + spaces( chunk.inner.length ) + '/'; },
+		templateChunk: function ( chunk ) { return chunk.outer[0] + spaces( chunk.inner.length ) + '${'; },
+		templateEnd: function ( chunk ) { return chunk.outer[0] + spaces( chunk.inner.length ) + '`'; }
+	};
+
+	function _erase ( str, found ) {
+		var erased = '';
+		var charIndex = 0;
+
+		for ( var i = 0; i < found.length; i += 1 ) {
+			var chunk = found[i];
+			erased += str.slice( charIndex, chunk.start );
+			erased += erasers[ chunk.type ]( chunk );
+
+			charIndex = chunk.end;
+		}
+
+		erased += str.slice( charIndex );
+		return erased;
+	}
+
+	function makeGlobalRegExp ( original ) {
+		var flags = 'g';
+
+		if ( original.multiline ) flags += 'm';
+		if ( original.ignoreCase ) flags += 'i';
+		if ( original.sticky ) flags += 'y';
+		if ( original.unicode ) flags += 'u';
+
+		return new RegExp( original.source, flags );
+	}
+
+	function match ( str, pattern, callback ) {
 		var g = pattern.global;
-		if (!g) pattern = makeGlobalRegExp(pattern);
+		if ( !g ) pattern = makeGlobalRegExp( pattern );
 
-		var found = find(str);
+		var found = find( str );
 
-		var match = undefined;
+		var match;
 		var chunkIndex = 0;
 
-		while (match = pattern.exec(str)) {
-			var chunk = undefined;
+		while ( match = pattern.exec( str ) ) {
+			var chunk;
 
 			do {
-				chunk = found[chunkIndex];
+				chunk = found[ chunkIndex ];
 
-				if (chunk && chunk.end < match.index) {
+				if ( chunk && chunk.end < match.index ) {
 					chunkIndex += 1;
 				} else {
 					break;
 				}
-			} while (chunk);
+			} while ( chunk );
 
-			if (!chunk || chunk.start > match.index) {
-				var args = [].slice.call(match).concat(match.index, str);
-				callback.apply(null, args);
-				if (!g) break;
+			if ( !chunk || chunk.start > match.index ) {
+				var args = [].slice.call( match ).concat( match.index, str );
+				callback.apply( null, args );
+				if ( !g ) break;
 			}
 		}
 	}
