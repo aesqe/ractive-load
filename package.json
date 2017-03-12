@@ -15,7 +15,7 @@
   "devDependencies": {
     "eslint": "^2.11.1",
     "mocha": "^2.5.3",
-    "ractive": "^0.8.1",
+    "ractive": "^0.9.0-build-111",
     "rollup": "^0.26.3",
     "rollup-plugin-buble": "^0.10.0",
     "rollup-plugin-node-resolve": "^1.5.0"

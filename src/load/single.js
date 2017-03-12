@@ -22,7 +22,7 @@ function loadSingle ( path, parentUrl, baseUrl, cache ) {
 	// request it again
 	if ( !cache || !promises[ url ] ) {
 		promise = get( url ).then( function ( template ) {
-			return new Ractive.Promise( function ( fulfil, reject ) {
+			return new Promise( function ( resolve, reject ) {
 				rcu.make( template, {
 					url: url,
 					loadImport: function ( name, path, parentUrl, callback ) {
@@ -32,7 +32,7 @@ function loadSingle ( path, parentUrl, baseUrl, cache ) {
 						loadSingle( path, parentUrl, baseUrl, cache ).then( callback, reject );
 					},
 					require: ractiveRequire
-				}, fulfil, reject );
+				}, resolve, reject );
 			});
 		});
 

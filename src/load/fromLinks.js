@@ -14,7 +14,7 @@ import loadSingle from './single';
 //       var foo = new Ractive.components.foo(...);
 //     });
 export default function loadFromLinks ( baseUrl, cache ) {
-	var promise = new Ractive.Promise( function ( resolve, reject ) {
+	var promise = new Promise( function ( resolve, reject ) {
 		var links, pending;
 
 		links = toArray( document.querySelectorAll( 'link[rel="ractive"]' ) );

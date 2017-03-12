@@ -5,7 +5,7 @@ var get;
 // Test for XHR to see if we're in a browser...
 if ( typeof XMLHttpRequest !== 'undefined' ) {
 	get = function ( url ) {
-		return new Ractive.Promise( function ( fulfil, reject ) {
+		return new Promise( function ( resolve, reject ) {
 			var xhr, onload, loaded;
 
 			xhr = new XMLHttpRequest();
@@ -16,7 +16,7 @@ if ( typeof XMLHttpRequest !== 'undefined' ) {
 					return;
 				}
 
-				fulfil( xhr.responseText );
+				resolve( xhr.responseText );
 				loaded = true;
 			};
 
@@ -34,13 +34,13 @@ if ( typeof XMLHttpRequest !== 'undefined' ) {
 // ...or in node.js
 else {
 	get = function ( url ) {
-		return new Ractive.Promise( function ( fulfil, reject ) {
+		return new Promise( function ( resolve, reject ) {
 			require( 'fs' ).readFile( url, function ( err, result ) {
 				if ( err ) {
 					return reject( err );
 				}
 
-				fulfil( result.toString() );
+				resolve( result.toString() );
 			});
 		});
 	};

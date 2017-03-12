@@ -944,7 +944,7 @@
 	// Test for XHR to see if we're in a browser...
 	if ( typeof XMLHttpRequest !== 'undefined' ) {
 		get = function ( url ) {
-			return new Ractive.Promise( function ( fulfil, reject ) {
+			return new Promise( function ( resolve, reject ) {
 				var xhr, onload, loaded;
 
 				xhr = new XMLHttpRequest();
@@ -955,7 +955,7 @@
 						return;
 					}
 
-					fulfil( xhr.responseText );
+					resolve( xhr.responseText );
 					loaded = true;
 				};
 
@@ -973,13 +973,13 @@
 	// ...or in node.js
 	else {
 		get = function ( url ) {
-			return new Ractive.Promise( function ( fulfil, reject ) {
+			return new Promise( function ( resolve, reject ) {
 				require( 'fs' ).readFile( url, function ( err, result ) {
 					if ( err ) {
 						return reject( err );
 					}
 
-					fulfil( result.toString() );
+					resolve( result.toString() );
 				});
 			});
 		};
@@ -997,7 +997,7 @@
 	//       var bar = new components.bar(...);
 	//     });
 	function loadMultiple ( map, baseUrl, cache ) {
-		var promise = new Ractive.Promise( function ( resolve, reject ) {
+		var promise = new Promise( function ( resolve, reject ) {
 			var pending = 0, result = {}, name, load;
 
 			load = function ( name ) {
@@ -1059,7 +1059,7 @@
 		// request it again
 		if ( !cache || !promises[ url ] ) {
 			promise = get$1( url ).then( function ( template ) {
-				return new Ractive.Promise( function ( fulfil, reject ) {
+				return new Promise( function ( fulfil, reject ) {
 					make( template, {
 						url: url,
 						loadImport: function ( name, path, parentUrl, callback ) {
@@ -1117,7 +1117,7 @@
 	//       var foo = new Ractive.components.foo(...);
 	//     });
 	function loadFromLinks ( baseUrl, cache ) {
-		var promise = new Ractive.Promise( function ( resolve, reject ) {
+		var promise = new Promise( function ( resolve, reject ) {
 			var links, pending;
 
 			links = toArray( document.querySelectorAll( 'link[rel="ractive"]' ) );
