@@ -336,12 +336,14 @@ function getLocation ( source, charIndex ) {
 var keywords = /(case|default|delete|do|else|in|instanceof|new|return|throw|typeof|void)\s*$/;
 var punctuators = /(^|\{|\(|\[\.|;|,|<|>|<=|>=|==|!=|===|!==|\+|-|\*\%|<<|>>|>>>|&|\||\^|!|~|&&|\|\||\?|:|=|\+=|-=|\*=|%=|<<=|>>=|>>>=|&=|\|=|\^=|\/=|\/)\s*$/;
 var ambiguous = /(\}|\)|\+\+|--)\s*$/;
+var beforeJsx = /^$|[=:;,\(\{\}\[|&+]\s*$/;
 
 function find ( str ) {
 	var quote;
 	var escapedFrom;
 	var regexEnabled = true;
 	var pfixOp = false;
+	var jsxTagDepth = 0;
 	var stack = [];
 
 	var start;
@@ -360,7 +362,7 @@ function find ( str ) {
 			return start = i, slash;
 		}
 
-		if ( char === '"' || char === "'" ) return start = i, quote = char, string;
+		if ( char === '"' || char === "'" ) return start = i, quote = char, stack.push( base ), string;
 		if ( char === '`' ) return start = i, templateString;
 
 		if ( char === '{' ) return stack.push( base ), base;
@@ -368,6 +370,12 @@ function find ( str ) {
 
 		if ( !( pfixOp && /\W/.test( char ) ) ) {
 			pfixOp = ( char === '+' && str[ i - 1 ] === '+' ) || ( char === '-' && str[ i - 1 ] === '-' );
+		}
+
+		if ( char === '<' ) {
+			var substr$1 = str.substr( 0, i );
+			substr$1 = _erase( substr$1, found ).trim();
+			if ( beforeJsx.test( substr$1 ) ) return stack.push( base ), jsxTagStart;
 		}
 
 		return base;
@@ -412,7 +420,7 @@ function find ( str ) {
 
 			found.push({ start: start, end: end, inner: inner, outer: outer, type: 'string' });
 
-			return base;
+			return stack.pop();
 		}
 
 		return string;
@@ -451,6 +459,43 @@ function find ( str ) {
 			return base;
 		}
 		return templateString( char, i );
+	}
+
+	// JSX is an XML-like extension to ECMAScript
+	// https://facebook.github.io/jsx/
+
+	function jsxTagStart ( char ) {
+		if ( char === '/' ) return jsxTagDepth--, jsxTag;
+		return jsxTagDepth++, jsxTag;
+	}
+
+	function jsxTag ( char, i ) {
+		if ( char === '"' || char === "'" ) return start = i, quote = char, stack.push( jsxTag ), string;
+		if ( char === '{' ) return stack.push( jsxTag ), base;
+		if ( char === '>' ) {
+			if ( jsxTagDepth <= 0 ) return base;
+			return jsx;
+		}
+		if ( char === '/' ) return jsxTagSelfClosing;
+
+		return jsxTag;
+	}
+
+	function jsxTagSelfClosing ( char ) {
+		if ( char === '>' ) {
+			jsxTagDepth--;
+			if ( jsxTagDepth <= 0 ) return base;
+			return jsx;
+		}
+
+		return jsxTag;
+	}
+
+	function jsx ( char ) {
+		if ( char === '{' ) return stack.push( jsx ), base;
+		if ( char === '<' ) return jsxTagStart;
+
+		return jsx;
 	}
 
 	function lineComment ( char, end ) {
@@ -493,7 +538,7 @@ function find ( str ) {
 			var after = str.slice( i );
 			var afterLine = /.+(\n|$)/.exec( after )[0];
 
-			var snippet = "" + beforeLine + afterLine + "\n" + (Array( beforeLine.length + 1 ).join( ' ' )) + "^";
+			var snippet = "" + beforeLine + "" + afterLine + "\n" + (Array( beforeLine.length + 1 ).join( ' ' )) + "^";
 
 			throw new Error( ("Unexpected character (" + line + ":" + column + "). If this is valid JavaScript, it's probably a bug in tippex. Please raise an issue at https://github.com/Rich-Harris/tippex/issues – thanks!\n\n" + snippet) );
 		}

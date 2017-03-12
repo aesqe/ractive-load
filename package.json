@@ -1,6 +1,6 @@
 {
   "name": "ractive-load",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "author": {
     "name": "Rich Harris"
   },
@@ -10,7 +10,7 @@
   "jsnext:main": "dist/ractive-load.es.js",
   "description": "Component loader plugin for Ractive.js",
   "dependencies": {
-    "rcu": "^0.9.0-edge1"
+    "rcu": "^0.9.0"
   },
   "devDependencies": {
     "eslint": "^2.11.1",
